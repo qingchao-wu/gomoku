@@ -235,6 +235,19 @@ header h1 {
     background: linear-gradient(135deg, var(--primary-color), #A0522D);
 }
 
+.btn-large {
+    padding: 15px 20px;
+    font-size: 1.1rem;
+}
+
+.top-buttons {
+    margin-bottom: 15px;
+}
+
+.top-buttons .btn {
+    width: 100%;
+}
+
 /* 落子记录 */
 .move-history {
     background: var(--card-bg);
