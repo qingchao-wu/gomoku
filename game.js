@@ -8,23 +8,24 @@ const EMPTY = 0;
 const BLACK = 1;
 const WHITE = 2;
 
-// AI搜索深度
+// AI搜索深度（大幅提升）
 const DEPTH = {
-    easy: 2,
-    medium: 4,
-    hard: 6
+    easy: 4,
+    medium: 6,
+    hard: 8  // 地狱难度
 };
 
-// 棋型分值（增强版）
+// 棋型分值（地狱版）
 const SCORES = {
-    FIVE: 1000000,       // 连五 - 必胜
-    LIVE_FOUR: 100000,   // 活四 - 必胜
-    DOUBLE_THREE: 50000, // 双活三 - 接近必胜
-    RUSH_FOUR: 10000,    // 冲四
-    LIVE_THREE: 5000,    // 活三
-    SLEEP_THREE: 500,    // 眠三
-    LIVE_TWO: 500,       // 活二
-    SLEEP_TWO: 50        // 眠二
+    FIVE: 10000000,        // 连五 - 必胜
+    LIVE_FOUR: 1000000,    // 活四 - 必胜
+    DOUBLE_THREE: 500000,  // 双活三 - 接近必胜
+    RUSH_FOUR: 100000,     // 冲四 - 极高威胁
+    LIVE_THREE: 50000,     // 活三 - 高威胁
+    DOUBLE_TWO: 10000,     // 双活二
+    SLEEP_THREE: 5000,     // 眠三
+    LIVE_TWO: 5000,        // 活二
+    SLEEP_TWO: 500         // 眠二
 };
 
 // ==================== 游戏状态 ====================
@@ -471,14 +472,18 @@ function getCandidateMoves() {
         return scoreB - scoreA;
     });
     
-    // 根据难度限制候选数量
-    const maxCandidates = gameState.difficulty === 'hard' ? 30 : (gameState.difficulty === 'medium' ? 25 : 15);
+    // 根据难度限制候选数量（增加搜索广度）
+    const maxCandidates = gameState.difficulty === 'hard' ? 50 : (gameState.difficulty === 'medium' ? 40 : 30);
     return candidates.slice(0, maxCandidates);
 }
 
 function evaluate(aiColor) {
     let score = 0;
     const opponent = aiColor === BLACK ? WHITE : BLACK;
+    
+    // 根据难度调整攻防权重
+    const defenseWeight = gameState.difficulty === 'hard' ? 1.2 : 
+                          (gameState.difficulty === 'medium' ? 1.15 : 1.1);
     
     // 评估每个位置
     for (let r = 0; r < BOARD_SIZE; r++) {
@@ -487,7 +492,7 @@ function evaluate(aiColor) {
                 score += evaluatePoint(r, c, aiColor);
             } else if (gameState.board[r][c] === opponent) {
                 // 对手的威胁要加权（防守更重要）
-                score -= evaluatePoint(r, c, opponent) * 1.1;
+                score -= evaluatePoint(r, c, opponent) * defenseWeight;
             }
         }
     }
@@ -514,25 +519,51 @@ function evaluatePoint(row, col, color) {
     let totalScore = 0;
     let liveThreeCount = 0;
     let rushFourCount = 0;
+    let liveTwoCount = 0;
+    let sleepThreeCount = 0;
     
     for (const [dr, dc] of directions) {
         const { count, openEnds, pattern } = countLine(row, col, dr, dc, color);
         const score = getPatternScore(count, openEnds);
         totalScore += score;
         
-        // 统计活三和冲四数量
-        if (count === 3 && openEnds === 2) liveThreeCount++;
+        // 统计棋型数量
         if (count === 4 && openEnds >= 1) rushFourCount++;
+        if (count === 3 && openEnds === 2) liveThreeCount++;
+        if (count === 3 && openEnds === 1) sleepThreeCount++;
+        if (count === 2 && openEnds === 2) liveTwoCount++;
     }
     
-    // 双活三加分
+    // 组合棋型加分（这些是必胜或接近必胜的棋型）
+    
+    // 双冲四 = 必胜
+    if (rushFourCount >= 2) {
+        totalScore += SCORES.LIVE_FOUR;
+    }
+    
+    // 冲四+活三 = 必胜
+    if (rushFourCount >= 1 && liveThreeCount >= 1) {
+        totalScore += SCORES.DOUBLE_THREE * 2;
+    }
+    
+    // 双活三 = 接近必胜
     if (liveThreeCount >= 2) {
         totalScore += SCORES.DOUBLE_THREE;
     }
     
-    // 冲四+活三加分
-    if (rushFourCount >= 1 && liveThreeCount >= 1) {
-        totalScore += SCORES.RUSH_FOUR * 2;
+    // 活三+眠三 = 高威胁
+    if (liveThreeCount >= 1 && sleepThreeCount >= 1) {
+        totalScore += SCORES.LIVE_THREE;
+    }
+    
+    // 双活二 = 发展潜力
+    if (liveTwoCount >= 2) {
+        totalScore += SCORES.DOUBLE_TWO;
+    }
+    
+    // 活三+活二 = 好形态
+    if (liveThreeCount >= 1 && liveTwoCount >= 1) {
+        totalScore += SCORES.LIVE_TWO * 2;
     }
     
     return totalScore;
