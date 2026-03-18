@@ -11,19 +11,20 @@ const WHITE = 2;
 // AI搜索深度
 const DEPTH = {
     easy: 2,
-    medium: 3,
-    hard: 4
+    medium: 4,
+    hard: 6
 };
 
-// 棋型分值
+// 棋型分值（增强版）
 const SCORES = {
-    FIVE: 100000,       // 连五
-    LIVE_FOUR: 10000,   // 活四
-    RUSH_FOUR: 1000,    // 冲四
-    LIVE_THREE: 1000,   // 活三
-    SLEEP_THREE: 100,   // 眠三
-    LIVE_TWO: 100,      // 活二
-    SLEEP_TWO: 10       // 眠二
+    FIVE: 1000000,       // 连五 - 必胜
+    LIVE_FOUR: 100000,   // 活四 - 必胜
+    DOUBLE_THREE: 50000, // 双活三 - 接近必胜
+    RUSH_FOUR: 10000,    // 冲四
+    LIVE_THREE: 5000,    // 活三
+    SLEEP_THREE: 500,    // 眠三
+    LIVE_TWO: 500,       // 活二
+    SLEEP_TWO: 50        // 眠二
 };
 
 // ==================== 游戏状态 ====================
@@ -470,8 +471,9 @@ function getCandidateMoves() {
         return scoreB - scoreA;
     });
     
-    // 限制候选数量
-    return candidates.slice(0, 20);
+    // 根据难度限制候选数量
+    const maxCandidates = gameState.difficulty === 'hard' ? 30 : (gameState.difficulty === 'medium' ? 25 : 15);
+    return candidates.slice(0, maxCandidates);
 }
 
 function evaluate(aiColor) {
@@ -484,7 +486,8 @@ function evaluate(aiColor) {
             if (gameState.board[r][c] === aiColor) {
                 score += evaluatePoint(r, c, aiColor);
             } else if (gameState.board[r][c] === opponent) {
-                score -= evaluatePoint(r, c, opponent);
+                // 对手的威胁要加权（防守更重要）
+                score -= evaluatePoint(r, c, opponent) * 1.1;
             }
         }
     }
@@ -492,13 +495,44 @@ function evaluate(aiColor) {
     return score;
 }
 
-function evaluatePoint(row, col, color) {
+// 检查某个位置对特定颜色的紧急威胁
+function checkUrgentThreat(row, col, color) {
     const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
-    let totalScore = 0;
     
     for (const [dr, dc] of directions) {
         const { count, openEnds } = countLine(row, col, dr, dc, color);
-        totalScore += getPatternScore(count, openEnds);
+        // 活四或冲四是紧急威胁
+        if (count >= 4 && openEnds >= 1) return true;
+        // 活三也是威胁
+        if (count === 3 && openEnds === 2) return true;
+    }
+    return false;
+}
+
+function evaluatePoint(row, col, color) {
+    const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
+    let totalScore = 0;
+    let liveThreeCount = 0;
+    let rushFourCount = 0;
+    
+    for (const [dr, dc] of directions) {
+        const { count, openEnds, pattern } = countLine(row, col, dr, dc, color);
+        const score = getPatternScore(count, openEnds);
+        totalScore += score;
+        
+        // 统计活三和冲四数量
+        if (count === 3 && openEnds === 2) liveThreeCount++;
+        if (count === 4 && openEnds >= 1) rushFourCount++;
+    }
+    
+    // 双活三加分
+    if (liveThreeCount >= 2) {
+        totalScore += SCORES.DOUBLE_THREE;
+    }
+    
+    // 冲四+活三加分
+    if (rushFourCount >= 1 && liveThreeCount >= 1) {
+        totalScore += SCORES.RUSH_FOUR * 2;
     }
     
     return totalScore;
@@ -507,6 +541,7 @@ function evaluatePoint(row, col, color) {
 function countLine(row, col, dr, dc, color) {
     let count = 1;
     let openEnds = 0;
+    let block1 = false, block2 = false;
     
     // 正向
     let r = row + dr, c = col + dc;
@@ -517,6 +552,8 @@ function countLine(row, col, dr, dc, color) {
     }
     if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && gameState.board[r][c] === EMPTY) {
         openEnds++;
+    } else {
+        block1 = true;
     }
     
     // 反向
@@ -529,13 +566,16 @@ function countLine(row, col, dr, dc, color) {
     }
     if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && gameState.board[r][c] === EMPTY) {
         openEnds++;
+    } else {
+        block2 = true;
     }
     
-    return { count, openEnds };
+    return { count, openEnds, blocked: block1 && block2 };
 }
 
 function getPatternScore(count, openEnds) {
     if (count >= 5) return SCORES.FIVE;
+    if (openEnds === 0) return 0;  // 两端都被堵，无价值
     if (count === 4) {
         if (openEnds === 2) return SCORES.LIVE_FOUR;
         if (openEnds === 1) return SCORES.RUSH_FOUR;
