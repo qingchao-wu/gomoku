@@ -449,46 +449,68 @@ function findBestMove() {
     return { row: 7, col: 7 };
 }
 
-// 计算某位置的分数（基于棋型）
+// 计算某位置的分数（基于棋型，包括跳棋型）
 function calcPositionScore(row, col, color) {
     const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
     let score = 0;
     
     for (const [dr, dc] of directions) {
-        let count = 1;
-        let openEnds = 0;
+        // 分析这条线上的棋型（包含跳子）
+        const lineScore = analyzeLineWithGaps(row, col, dr, dc, color);
+        score += lineScore;
+    }
+    
+    return score;
+}
+
+// 分析一条线（包含跳子情况，如 ●_●● 或 ●●_●）
+function analyzeLineWithGaps(row, col, dr, dc, color) {
+    // 获取这条线上前后各5格的情况
+    let line = [];
+    for (let i = -4; i <= 4; i++) {
+        const r = row + dr * i;
+        const c = col + dc * i;
+        if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) {
+            line.push({ pos: i, val: gameState.board[r][c] });
+        } else {
+            line.push({ pos: i, val: -1 }); // 边界
+        }
+    }
+    
+    // 当前位置设为color（因为我们在模拟落子）
+    const centerIdx = line.findIndex(x => x.pos === 0);
+    if (centerIdx !== -1) {
+        line[centerIdx].val = color;
+    }
+    
+    let score = 0;
+    const opponent = color === BLACK ? WHITE : BLACK;
+    
+    // 检测连续5格的各种棋型
+    for (let start = 0; start <= line.length - 5; start++) {
+        const segment = line.slice(start, start + 5);
         
-        // 正向数
-        let r = row + dr, c = col + dc;
-        while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && gameState.board[r][c] === color) {
-            count++;
-            r += dr;
-            c += dc;
-        }
-        if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && gameState.board[r][c] === EMPTY) {
-            openEnds++;
+        // 统计这5格中的己方棋子、空位、对方棋子
+        let myCount = 0;
+        let emptyCount = 0;
+        let blocked = false;
+        
+        for (const cell of segment) {
+            if (cell.val === color) myCount++;
+            else if (cell.val === EMPTY) emptyCount++;
+            else blocked = true; // 对方棋子或边界
         }
         
-        // 反向数
-        r = row - dr;
-        c = col - dc;
-        while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && gameState.board[r][c] === color) {
-            count++;
-            r -= dr;
-            c -= dc;
+        // 如果没有被对方堵住，根据棋子数评分
+        if (!blocked) {
+            if (myCount === 5) score += 100000;      // 五连
+            else if (myCount === 4) score += 50000;  // 四子（包括跳四）
+            else if (myCount === 3) score += 5000;   // 三子（包括跳三）
+            else if (myCount === 2) score += 200;    // 二子
+        } else if (myCount >= 3 && emptyCount >= 1) {
+            // 被堵但还有空位
+            score += myCount * 100;
         }
-        if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && gameState.board[r][c] === EMPTY) {
-            openEnds++;
-        }
-        
-        // 根据连子数和开放端计分
-        if (count >= 5) score += 100000;
-        else if (count === 4 && openEnds === 2) score += 50000;  // 活四
-        else if (count === 4 && openEnds === 1) score += 10000;  // 冲四
-        else if (count === 3 && openEnds === 2) score += 5000;   // 活三
-        else if (count === 3 && openEnds === 1) score += 500;    // 眠三
-        else if (count === 2 && openEnds === 2) score += 200;    // 活二
-        else if (count === 2 && openEnds === 1) score += 50;     // 眠二
     }
     
     return score;
